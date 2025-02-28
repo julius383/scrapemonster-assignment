@@ -10,7 +10,7 @@ from typing import Optional
 
 from playwright.async_api import Browser, TimeoutError, async_playwright
 from prefect import flow, task
-from prefect.cache_policies import INPUTS, TASK_SOURCE
+from prefect.cache_policies import INPUTS
 from prefect.concurrency.asyncio import rate_limit
 from prefect.logging import get_run_logger
 from toolz import last, pipe
@@ -30,9 +30,9 @@ def is_valid_ean13(ean: str) -> bool:
     return checksum == digits[12]
 
 
-@task(cache_policy=INPUTS, cache_expiration=timedelta(days=1), retries=1)
+@task(cache_policy=INPUTS, cache_expiration=timedelta(days=2), retries=1)
 async def find_category_pages(on_url: str) -> [str]:
-    await rate_limit("tops_website")
+    await rate_limit("tops_website", occupy=1)
     logger = get_run_logger()
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -49,10 +49,12 @@ async def find_category_pages(on_url: str) -> [str]:
         return category_links
 
 
-@task(cache_policy=INPUTS, cache_expiration=timedelta(days=1), retries=1)
+@task(cache_policy=INPUTS, cache_expiration=timedelta(days=2), retries=1)
 async def find_product_pages(on_url: str) -> [str]:
-    await rate_limit("tops_website")
     logger = get_run_logger()
+    # check if url is relative and append website base
+    if not on_url.startswith("https://www.tops.co.th/en"):
+        on_url = f"https://www.tops.co.th/en{on_url}"
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         page = await browser.new_page()
@@ -96,17 +98,20 @@ async def find_product_pages(on_url: str) -> [str]:
         return links
 
 
-my_custom_policy = INPUTS + TASK_SOURCE - "browser"
+my_custom_policy = INPUTS - "browser"
 
 
-@task(cache_policy=my_custom_policy, cache_expiration=timedelta(days=1), retries=1)
+@task(cache_policy=my_custom_policy, cache_expiration=timedelta(days=2), retries=1)
 async def extract_product_info(
     on_url: str, browser: Optional[Browser] = None
 ) -> dict[str, str | float | None]:
-    await rate_limit("tops_website")
+    await rate_limit("tops_website", occupy=1)
     logger = get_run_logger()
     logger.info(f"extracting product data from: {on_url}")
     close_browser = False
+
+    if not on_url.startswith("https://www.tops.co.th/en"):
+        on_url = f"https://www.tops.co.th/en{on_url}"
 
     # create browser context if one is not passed in
     if browser is None:
@@ -196,6 +201,7 @@ async def get_products(product_links: [str], output_file="products.jsonl") -> No
     """Extract data from multiple pages and save in single file."""
     logger = get_run_logger()
     logger.info(f"attempting to extract product info from {len(product_links)} pages")
+    products = []
     products = extract_product_info.map(product_links).result()
     write_results(output_file, products)
     return
@@ -261,4 +267,4 @@ async def alt_main():
 
 
 if __name__ == "__main__":
-    asyncio.run(alt_main())
+    asyncio.run(main())
