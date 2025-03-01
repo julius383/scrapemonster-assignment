@@ -4,7 +4,7 @@ import re
 from collections import deque
 from datetime import timedelta
 from functools import partial
-from itertools import chain
+from itertools import batched, chain
 from pathlib import Path
 from typing import Optional
 
@@ -13,7 +13,7 @@ from prefect import flow, task
 from prefect.cache_policies import INPUTS
 from prefect.concurrency.asyncio import rate_limit
 from prefect.logging import get_run_logger
-from toolz import last, pipe
+from toolz import excepts, last, pipe
 
 OUTPUT_DIR = Path(__file__).parent / ".." / ".." / "data"
 
@@ -119,107 +119,132 @@ async def extract_product_info(
         close_browser = True
         browser = await p.chromium.launch()
     page = await browser.new_page()
-    await page.goto(on_url)
+    # await page.set_default_timeout(10_000)
+    try:
+        await page.goto(on_url)
 
-    name = await page.locator(
-        ".product-Details-name .product-tile__name"
-    ).text_content()
+        name = await page.locator(
+            ".product-Details-name .product-tile__name"
+        ).text_content()
 
-    images = [
-        await img.get_attribute("src")
-        for img in await page.locator(".img-zoom-container img").all()
-    ]
-    quantity = None
-    if re.search(r" \d+[a-zA-Z]{1,2}\.$", name):
-        quantity = pipe(
-            name,
+        images = [
+            await img.get_attribute("src")
+            for img in await page.locator(".img-zoom-container img").all()
+        ]
+        quantity = None
+        if re.search(r" \d+[a-zA-Z]{1,}\.?$", name):
+            quantity = pipe(
+                name,
+                partial(re.split, r"\s+"),
+                last,
+                partial(re.sub, r"[^a-zA-Z0-9]", ""),
+            )
+            name = pipe(
+                name,
+                partial(re.split, r"\s+"),
+                lambda x: x[:-1],
+                partial(str.join, " "),
+                partial(re.sub, r"^\(.+\)\s*", ""),
+            )
+
+        sku = await page.locator(".product-Details-sku").text_content()
+        sku = pipe(
+            sku,
+            str.strip,
             partial(re.split, r"\s+"),
             last,
-            partial(re.sub, r"[^a-zA-Z0-9]", ""),
         )
-        name = pipe(
-            name,
-            partial(re.split, r"\s+"),
-            lambda x: x[:-1],
-            partial(str.join, " "),
-            partial(re.sub, r"^\(.+\)\s*", ""),
+        barcode = f"EAN-13 {sku}" if is_valid_ean13(sku) else None
+
+        try:
+            details = await page.locator(
+                ".accordion-item-product-details .accordion-body"
+            ).text_content(timeout=100)
+            details = pipe(
+                details,
+                partial(re.sub, r"[ \t]+", " "),
+                str.strip,
+            )
+        except TimeoutError:
+            details = None
+
+        price = await page.locator(
+            ".product-Details-current-price"
+        ).text_content()
+        price = pipe(
+            price,
+            partial(re.sub, r"[,]", ""),
+            excepts(ValueError, float, lambda _: None),
         )
 
-    sku = await page.locator(".product-Details-sku").text_content()
-    sku = pipe(
-        sku,
-        str.strip,
-        partial(re.split, r"\s+"),
-        last,
-    )
-    barcode = f"EAN-13 {sku}" if is_valid_ean13(sku) else None
-
-    try:
-        details = await page.locator(
-            ".accordion-item-product-details .accordion-body"
-        ).text_content(timeout=100)
-        details = pipe(
-            details,
-            partial(re.sub, r"[ \t]+", " "),
-            str.strip,
+        labels = [
+            await img.get_attribute("alt")
+            for img in await page.locator(
+                ".product-Details-common-description img:not(.product-Details-ui.image)"
+            ).all()
+        ]
+        labels = pipe(
+            labels,
+            partial(map, str.strip),
+            partial(filter, bool),
+            list,
         )
+        data = {
+            "name": name,
+            "quantity": quantity,
+            "price": price,
+            "images": images,
+            "barcode": barcode,
+            "labels": labels,
+            "store_url": on_url,
+        }
+        return data
     except TimeoutError:
-        details = None
-
-    price = await page.locator(".product-Details-current-price").text_content()
-    price = float(price)
-
-    labels = [
-        await img.get_attribute("alt")
-        for img in await page.locator(
-            ".product-Details-common-description img:not(.product-Details-ui.image)"
-        ).all()
-    ]
-    labels = pipe(
-        labels,
-        partial(map, str.strip),
-        partial(filter, bool),
-        list,
-    )
-    data = {
-        "name": name,
-        "quantity": quantity,
-        "price": price,
-        "images": images,
-        "barcode": barcode,
-        "labels": labels,
-        "store_url": on_url,
-    }
-    await page.close()
-    if close_browser:
-        await browser.close()
-    return data
+        return None
+    finally:
+        await page.close()
+        if close_browser:
+            await browser.close()
 
 
 @flow
-async def get_products(product_links: [str], output_file="products.jsonl") -> None:
+async def get_products(
+    product_links: [str], output_file="products.jsonl", batch_size=4
+) -> None:
     """Extract data from multiple pages and save in single file."""
     logger = get_run_logger()
-    logger.info(f"attempting to extract product info from {len(product_links)} pages")
-    products = []
-    products = extract_product_info.map(product_links).result()
-    write_results(output_file, products)
+    logger.info(
+        f"attempting to extract product info from {len(product_links)} pages"
+    )
+    results = []
+    record_count = 0
+    # use batches to prevent to many browser instances from created at once
+    for batch in batched(product_links, batch_size):
+        products = extract_product_info.map(batch).result()
+        results.extend(products)
+        record_count += batch_size
+        # write_results("products-temp.jsonl", products, append=True)
+        if record_count % 1000 == 0:
+            write_results("products-temp.jsonl", results, append=True)
+
+    write_results(output_file, results)
     return
 
 
 @task(log_prints=True)
-def write_results(filename, objs: [dict]) -> None:
+def write_results(filename, objs: [dict], append=False) -> None:
     """Save results in JSONL format."""
     logger = get_run_logger()
     output = OUTPUT_DIR.resolve()
     output.mkdir(exist_ok=True)
     count = 0
-    with open(output / filename, "w") as fp:
+    with open(output / filename, "a" if append else "w") as fp:
         for item in objs:
             # pprint(item)
             fp.write(json.dumps(item) + "\n")
             count += 1
-    logger.info(f"wrote {count} records to {output / filename}")
+    if not append:
+        logger.info(f"wrote {count} records to {output / filename}")
     return
 
 
