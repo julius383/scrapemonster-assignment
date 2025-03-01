@@ -1,10 +1,10 @@
 
 setup:
-    uv install
+    uv sync
 
 lint:
     isort src/
-    black src/
+    ruff format src/
 
 tasks:
     rg --pretty --max-depth 50 --glob '!justfile' 'FIXME|TODO'
