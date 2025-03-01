@@ -44,7 +44,9 @@ async def find_category_pages(on_url: str) -> [str]:
         await page.wait_for_timeout(5_000)
         categories = await page.locator(".plp-carousel__link").all()
 
-        category_links = [await link.get_attribute("href") for link in categories]
+        category_links = [
+            await link.get_attribute("href") for link in categories
+        ]
         await browser.close()
         return category_links
 
@@ -72,7 +74,9 @@ async def find_product_pages(on_url: str) -> [str]:
         await page.wait_for_timeout(3_000)
 
         # find all products currently loaded
-        last_product_count = await page.locator(".product-item-inner-wrap").count()
+        last_product_count = await page.locator(
+            ".product-item-inner-wrap"
+        ).count()
 
         # stop if 3 iterations result in no additional items or wait quota exceeded
         while (
@@ -86,7 +90,9 @@ async def find_product_pages(on_url: str) -> [str]:
 
             await page.wait_for_timeout(2_000)
 
-            last_product_count = await page.locator(".product-item-inner-wrap").count()
+            last_product_count = await page.locator(
+                ".product-item-inner-wrap"
+            ).count()
 
             product_counts.append(last_product_count)
             total_wait_time += wait_time
@@ -101,7 +107,9 @@ async def find_product_pages(on_url: str) -> [str]:
 my_custom_policy = INPUTS - "browser"
 
 
-@task(cache_policy=my_custom_policy, cache_expiration=timedelta(days=2), retries=1)
+@task(
+    cache_policy=my_custom_policy, cache_expiration=timedelta(days=2), retries=1
+)
 async def extract_product_info(
     on_url: str, browser: Optional[Browser] = None
 ) -> dict[str, str | float | None]:
