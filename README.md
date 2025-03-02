@@ -109,7 +109,7 @@ under too much strain.
 
 ## Output
 
-Samples from limited runs of the crawler can be seen in the `data/` directory.
+Results from runs of the crawler can be seen in the `data/` directory.
 The following is a random sample:
 
 ```json
@@ -176,3 +176,27 @@ The following is a random sample:
   }
 ]
 ```
+
+Summary of the data can be produced using DuckDB with the following query:
+
+```sql
+select
+  column_name,
+  column_type,
+  min,
+  max,
+  approx_unique,
+  count,
+  null_percentage
+from (summarize from read_ndjson('data/products-temp.jsonl'));
+```
+
+| column_name | column_type |                                 min                                  |                                             max                                             | approx_unique | count | null_percentage |
+|-------------|-------------|----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|--------------:|------:|----------------:|
+| name        | VARCHAR     |  Sukishi Cabbage Kimchi                                              | mMilk Pasteurized Milk Box                                                                  | 7377          | 6039  | 0.02            |
+| quantity    | VARCHAR     | 1000g                                                                | 9g                                                                                          | 572           | 6039  | 14.22           |
+| price       | DOUBLE      | 5.0                                                                  | 16000.0                                                                                     | 527           | 6039  | 0.26            |
+| images      | VARCHAR[]   | []                                                                   | [NULL, https://assets.tops.co.th/DPLUS-DPlusRedBeanPasteFilledBun90g-8859290400036-1, NULL] | 4646          | 6039  | 0.02            |
+| barcode     | VARCHAR     | EAN-13 0000020422967                                                 | EAN-13 9992301630028                                                                        | 7580          | 6039  | 0.02            |
+| labels      | VARCHAR[]   | []                                                                   | [ฮาลาล]                                                                                     | 41            | 6039  | 0.02            |
+| store_url   | VARCHAR     | https://www.tops.co.th/en/-sukishi-cabbage-kimchi-150g-8859242900010 | https://www.tops.co.th/en/zhen-chun-sesame-peanut-butter-200g-6941084202918                 | 6303          | 6039  | 0.02            |
