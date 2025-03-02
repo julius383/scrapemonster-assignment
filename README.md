@@ -190,13 +190,16 @@ select
   null_percentage
 from (summarize from read_ndjson('data/products-temp.jsonl'));
 ```
-
 | column_name | column_type |                                 min                                  |                                             max                                             | approx_unique | count | null_percentage |
 |-------------|-------------|----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|--------------:|------:|----------------:|
-| name        | VARCHAR     |  Sukishi Cabbage Kimchi                                              | mMilk Pasteurized Milk Box                                                                  | 7377          | 6039  | 0.02            |
-| quantity    | VARCHAR     | 1000g                                                                | 9g                                                                                          | 572           | 6039  | 14.22           |
-| price       | DOUBLE      | 5.0                                                                  | 16000.0                                                                                     | 527           | 6039  | 0.26            |
-| images      | VARCHAR[]   | []                                                                   | [NULL, https://assets.tops.co.th/DPLUS-DPlusRedBeanPasteFilledBun90g-8859290400036-1, NULL] | 4646          | 6039  | 0.02            |
+| name        | VARCHAR     |                                                                      | mMilk UHT Milk Lactose Free Plain 180ml. Pack 2                                             | 7561          | 6788  | 0.01            |
+| quantity    | VARCHAR     | 1000g                                                                | 9g                                                                                          | 631           | 6788  | 15.91           |
+| price       | DOUBLE      | 5.0                                                                  | 16000.0                                                                                     | 578           | 6788  | 0.40            |
+| images      | VARCHAR[]   | []                                                                   | [NULL, https://assets.tops.co.th/DPLUS-DPlusRedBeanPasteFilledBun90g-8859290400036-1, NULL] | 5828          | 6788  | 0.01            |
+| barcode     | VARCHAR     | EAN-13 0000020422967                                                 | EAN-13 9992301630028                                                                        | 8065          | 6788  | 0.01            |
+| labels      | VARCHAR[]   | []                                                                   | [ฮาลาล]                                                                                     | 41            | 6788  | 0.01            |
+| store_url   | VARCHAR     | https://www.tops.co.th/en/-sukishi-cabbage-kimchi-150g-8859242900010 | https://www.tops.co.th/en/zuza-sparkling-calamansi-flavour-drink-240ml-8851906883950        | 6955          | 6788  | 0.01            |
+
 | barcode     | VARCHAR     | EAN-13 0000020422967                                                 | EAN-13 9992301630028                                                                        | 7580          | 6039  | 0.02            |
 | labels      | VARCHAR[]   | []                                                                   | [ฮาลาล]                                                                                     | 41            | 6039  | 0.02            |
 | store_url   | VARCHAR     | https://www.tops.co.th/en/-sukishi-cabbage-kimchi-150g-8859242900010 | https://www.tops.co.th/en/zhen-chun-sesame-peanut-butter-200g-6941084202918                 | 6303          | 6039  | 0.02            |
