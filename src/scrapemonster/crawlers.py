@@ -30,7 +30,7 @@ def is_valid_ean13(ean: str) -> bool:
     return checksum == digits[12]
 
 
-@task(cache_policy=INPUTS, cache_expiration=timedelta(days=2), retries=1)
+@task(cache_policy=INPUTS, cache_expiration=timedelta(days=7), retries=1)
 async def find_category_pages(on_url: str) -> [str]:
     await rate_limit("tops_website", occupy=1)
     logger = get_run_logger()
@@ -51,7 +51,7 @@ async def find_category_pages(on_url: str) -> [str]:
         return category_links
 
 
-@task(cache_policy=INPUTS, cache_expiration=timedelta(days=2), retries=1)
+@task(cache_policy=INPUTS, cache_expiration=timedelta(days=7), retries=1)
 async def find_product_pages(on_url: str) -> [str]:
     logger = get_run_logger()
     # check if url is relative and append website base
@@ -108,7 +108,7 @@ my_custom_policy = INPUTS - "browser"
 
 
 @task(
-    cache_policy=my_custom_policy, cache_expiration=timedelta(days=2), retries=1
+    cache_policy=my_custom_policy, cache_expiration=timedelta(days=7), retries=1
 )
 async def extract_product_info(
     on_url: str, browser: Optional[Browser] = None
@@ -225,15 +225,10 @@ async def get_products(
         f"attempting to extract product info from {len(product_links)} pages"
     )
     results = []
-    record_count = 0
-    # use batches to prevent to many browser instances from created at once
+    # use batches to prevent too many browser instances from created at once
     for batch in batched(product_links, batch_size):
         products = extract_product_info.map(batch).result()
         results.extend(products)
-        record_count += batch_size
-        # write_results("products-temp.jsonl", products, append=True)
-        if record_count % 1000 == 0:
-            write_results("products-temp.jsonl", results, append=True)
 
     write_results(output_file, results)
     return
@@ -248,7 +243,6 @@ def write_results(filename, objs: [dict], append=False) -> None:
     count = 0
     with open(output / filename, "a" if append else "w") as fp:
         for item in objs:
-            # pprint(item)
             fp.write(json.dumps(item) + "\n")
             count += 1
     if not append:
@@ -274,14 +268,28 @@ async def main():
         "https://www.tops.co.th/en/household-and-pet",
         "https://www.tops.co.th/en/petnme",
     ]
-    category_pages = find_category_pages.map(nav_links).result()
-    product_listing_pages = list(chain.from_iterable(category_pages))
-    logger.info(f"found {len(product_listing_pages)} product listing pages")
+    # category_pages = find_category_pages.map(nav_links).result()
+    batch_size = 4
 
-    products_pages = find_product_pages.map(product_listing_pages).result()
-    product_page_links = list(chain.from_iterable(products_pages))
+    logger.info("looking for product listing pages")
+    product_listing_pages = []
+    for batch in batched(nav_links, batch_size):
+        pages =  find_category_pages.map(batch).result()
+        product_listing_pages.extend(list(chain.from_iterable(pages)))
 
-    await get_products(product_page_links)
+    logger.info("looking for product pages")
+    product_pages = set()
+    for batch in batched(product_listing_pages, batch_size):
+        pages = find_product_pages.map(batch).result()
+        product_pages.update(list(chain.from_iterable(pages)))
+
+    done_urls = set()
+    with open(OUTPUT_DIR / "products-filtered-temp.jsonl", "r") as fp:
+        for line in fp.readlines():
+            url = json.loads(line)['store_url']
+            done_urls.add(url)
+
+    await get_products(set(product_pages) - done_urls, batch_size=batch_size)
 
 
 @flow(log_prints=True)
